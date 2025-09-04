@@ -58,27 +58,7 @@ searchController.search = async function (req, res, next) {
 		return res.json(searchData);
 	}
 
-	// Page chrome (breadcrumbs, view toggles, title)
-	searchData.breadcrumbs = helpers.buildBreadcrumbs([{ text: '[[global:search]]' }]);
-	searchData.showAsPosts = !req.query.showAs || req.query.showAs === 'posts';
-	searchData.showAsTopics = req.query.showAs === 'topics';
-	searchData.title = '[[global:header.search]]';
-
-	// Category selection state for the UI (selectedCids + optional selectedCategory)
-	if (Array.isArray(data.categories)) {
-		const { selectedCids, selectedCategory } = computeSelectedCategoryState(data.categories);
-		searchData.selectedCids = selectedCids;
-		if (selectedCategory) searchData.selectedCategory = selectedCategory;
-	}
-
-	// Build filter chips shown on the page
-	searchData.filters = await buildFilters(data, searchData.selectedCids);
-
-	searchData.userFilterSelected = await getSelectedUsers(data.postedBy);
-	searchData.tagFilterSelected = getSelectedTags(data.hasTags);
-	searchData.searchDefaultSortBy = meta.config.searchDefaultSortBy || '';
-	searchData.searchDefaultIn = meta.config.searchDefaultIn || 'titlesposts';
-	searchData.privileges = userPrivileges;
+	await populateSearchViewModel(searchData, req, data, userPrivileges);
 
 	res.render('search', searchData);
 };
@@ -136,15 +116,32 @@ function buildSearchInput(req, page) {
 	};
 }
 
-// Compute selected category view state (selectedCids + optional selectedCategory)
-function computeSelectedCategoryState(categoriesArray) {
-	if (!Array.isArray(categoriesArray)) return {};
-	const selectedCids = categoriesArray.map(cid => validator.escape(String(cid)));
-	const hasSpecificSelection = !selectedCids.includes('all') && selectedCids.length;
-	return {
-		selectedCids,
-		...(hasSpecificSelection ? { selectedCategory: { cid: 0 } } : {}),
-	};
+// Populate view-only fields: page chrome, category UI state, filters, selections, defaults, privileges
+async function populateSearchViewModel(searchData, req, data, userPrivileges) {
+	// Page chrome (breadcrumbs, view toggles, title)
+	searchData.breadcrumbs = helpers.buildBreadcrumbs([{ text: '[[global:search]]' }]);
+	searchData.showAsPosts = !req.query.showAs || req.query.showAs === 'posts';
+	searchData.showAsTopics = req.query.showAs === 'topics';
+	searchData.title = '[[global:header.search]]';
+
+	// Category selection state (selectedCids + optional selectedCategory)
+	if (Array.isArray(data.categories)) {
+		const selectedCids = data.categories.map(cid => validator.escape(String(cid)));
+		searchData.selectedCids = selectedCids;
+		if (!selectedCids.includes('all') && selectedCids.length) {
+			searchData.selectedCategory = { cid: 0 };
+		}
+	}
+
+	// Filter chips (labels may require async translator/category lookups)
+	searchData.filters = await buildFilters(data, searchData.selectedCids);
+
+	// Selections + defaults used by the template
+	searchData.userFilterSelected = await getSelectedUsers(data.postedBy);
+	searchData.tagFilterSelected = getSelectedTags(data.hasTags);
+	searchData.searchDefaultSortBy = meta.config.searchDefaultSortBy || '';
+	searchData.searchDefaultIn = meta.config.searchDefaultIn || 'titlesposts';
+	searchData.privileges = userPrivileges;
 }
 
 // Build the filters section shown on the search page (uses translator + category label)
