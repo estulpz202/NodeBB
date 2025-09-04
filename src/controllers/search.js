@@ -20,6 +20,8 @@ const helpers = require('./helpers');
 const searchController = module.exports;
 
 searchController.search = async function (req, res, next) {
+	console.log('Estu Lpz: searchController.search hit'); // REMOVE before merging
+
 	if (!plugins.hooks.hasListeners('filter:search.query')) {
 		return next();
 	}
@@ -46,32 +48,9 @@ searchController.search = async function (req, res, next) {
 		return helpers.notAllowed(req, res);
 	}
 
-	if (req.query.categories && !Array.isArray(req.query.categories)) {
-		req.query.categories = [req.query.categories];
-	}
-	if (req.query.hasTags && !Array.isArray(req.query.hasTags)) {
-		req.query.hasTags = [req.query.hasTags];
-	}
-
-	const data = {
-		query: req.query.term,
-		searchIn: req.query.in,
-		matchWords: req.query.matchWords || 'all',
-		postedBy: req.query.by,
-		categories: req.query.categories,
-		searchChildren: req.query.searchChildren,
-		hasTags: req.query.hasTags,
-		replies: validator.escape(String(req.query.replies || '')),
-		repliesFilter: validator.escape(String(req.query.repliesFilter || '')),
-		timeRange: validator.escape(String(req.query.timeRange || '')),
-		timeFilter: validator.escape(String(req.query.timeFilter || '')),
-		sortBy: validator.escape(String(req.query.sortBy || '')) || meta.config.searchDefaultSortBy || '',
-		sortDirection: validator.escape(String(req.query.sortDirection || '')),
-		page: page,
-		itemsPerPage: req.query.itemsPerPage,
-		uid: req.uid,
-		qs: req.query,
-	};
+	// Normalize incoming query params and build input object
+	normalizeSearchQueryParams(req.query);
+	const data = buildSearchInput(req, page);
 
 	const [searchData] = await Promise.all([
 		search.search(data),
@@ -143,6 +122,41 @@ searchController.search = async function (req, res, next) {
 
 	res.render('search', searchData);
 };
+
+// Ensure values are always arrays (used for categories, tags)
+function coerceToArray(val) {
+	if (val === undefined || val === null) return val;
+	return Array.isArray(val) ? val : [val];
+}
+
+// Normalize query parameters that can be singular or array
+function normalizeSearchQueryParams(qs) {
+	if (qs.categories) qs.categories = coerceToArray(qs.categories);
+	if (qs.hasTags) qs.hasTags = coerceToArray(qs.hasTags);
+}
+
+// Build the structured "data" object passed to search + recordSearch.
+function buildSearchInput(req, page) {
+	return {
+		query: req.query.term,
+		searchIn: req.query.in,
+		matchWords: req.query.matchWords || 'all',
+		postedBy: req.query.by,
+		categories: req.query.categories,
+		searchChildren: req.query.searchChildren,
+		hasTags: req.query.hasTags,
+		replies: validator.escape(String(req.query.replies || '')),
+		repliesFilter: validator.escape(String(req.query.repliesFilter || '')),
+		timeRange: validator.escape(String(req.query.timeRange || '')),
+		timeFilter: validator.escape(String(req.query.timeFilter || '')),
+		sortBy: validator.escape(String(req.query.sortBy || '')) || meta.config.searchDefaultSortBy || '',
+		sortDirection: validator.escape(String(req.query.sortDirection || '')),
+		page,
+		itemsPerPage: req.query.itemsPerPage,
+		uid: req.uid,
+		qs: req.query,
+	};
+}
 
 const searches = {};
 
