@@ -35,15 +35,9 @@ searchController.search = async function (req, res, next) {
 		'search:tags': privileges.global.can('search:tags', req.uid),
 	});
 	req.query.in = req.query.in || meta.config.searchDefaultIn || 'titlesposts';
-	let allowed = (req.query.in === 'users' && userPrivileges['search:users']) ||
-					(req.query.in === 'tags' && userPrivileges['search:tags']) ||
-					(req.query.in === 'categories') ||
-					(['titles', 'titlesposts', 'posts', 'bookmarks'].includes(req.query.in) && userPrivileges['search:content']);
-	({ allowed } = await plugins.hooks.fire('filter:search.isAllowed', {
-		uid: req.uid,
-		query: req.query,
-		allowed,
-	}));
+	
+	// Validate permissions: block if user is not allowed to search this scope
+	const allowed = await validateSearchPermissions(req, userPrivileges);
 	if (!allowed) {
 		return helpers.notAllowed(req, res);
 	}
@@ -122,6 +116,24 @@ searchController.search = async function (req, res, next) {
 
 	res.render('search', searchData);
 };
+
+// Checks if the current user/request is allowed to perform this search
+async function validateSearchPermissions(req, userPrivileges) {
+	// Default "allowed" check based on privileges
+	let allowed = (req.query.in === 'users' && userPrivileges['search:users']) ||
+		(req.query.in === 'tags' && userPrivileges['search:tags']) ||
+		(req.query.in === 'categories') ||
+		(['titles', 'titlesposts', 'posts', 'bookmarks'].includes(req.query.in) && userPrivileges['search:content']);
+
+	// Allow plugins to modify "allowed"
+	({ allowed } = await plugins.hooks.fire('filter:search.isAllowed', {
+		uid: req.uid,
+		query: req.query,
+		allowed,
+	}));
+
+	return allowed;
+}
 
 // Ensure values are always arrays (used for categories, tags)
 function coerceToArray(val) {
