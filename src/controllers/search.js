@@ -60,53 +60,21 @@ searchController.search = async function (req, res, next) {
 		return res.json(searchData);
 	}
 
-
+	// Page chrome (breadcrumbs, view toggles, title)
 	searchData.breadcrumbs = helpers.buildBreadcrumbs([{ text: '[[global:search]]' }]);
 	searchData.showAsPosts = !req.query.showAs || req.query.showAs === 'posts';
 	searchData.showAsTopics = req.query.showAs === 'topics';
 	searchData.title = '[[global:header.search]]';
+
+	// Category selection state for the UI (selectedCids + optional selectedCategory)
 	if (Array.isArray(data.categories)) {
-		searchData.selectedCids = data.categories.map(cid => validator.escape(String(cid)));
-		if (!searchData.selectedCids.includes('all') && searchData.selectedCids.length) {
-			searchData.selectedCategory = { cid: 0 };
-		}
+		const { selectedCids, selectedCategory } = computeSelectedCategoryState(data.categories);
+		searchData.selectedCids = selectedCids;
+		if (selectedCategory) searchData.selectedCategory = selectedCategory;
 	}
 
-	searchData.filters = {
-		replies: {
-			active: !!data.repliesFilter,
-			label: `[[search:replies-${data.repliesFilter}-count, ${data.replies}]]`,
-		},
-		time: {
-			active: !!(data.timeFilter && data.timeRange),
-			label: `[[search:time-${data.timeFilter}-than-${data.timeRange}]]`,
-		},
-		sort: {
-			active: !!(data.sortBy && data.sortBy !== 'relevance'),
-			label: `[[search:sort-by-${data.sortBy}-${data.sortDirection}]]`,
-		},
-		users: {
-			active: !!(data.postedBy),
-			label: translator.compile(
-				'search:posted-by-usernames',
-				(Array.isArray(data.postedBy) ? data.postedBy : [])
-					.map(u => validator.escape(String(u))).join(', ')
-			),
-		},
-		tags: {
-			active: !!(Array.isArray(data.hasTags) && data.hasTags.length),
-			label: translator.compile(
-				'search:tags-x',
-				(Array.isArray(data.hasTags) ? data.hasTags : [])
-					.map(u => validator.escape(String(u))).join(', ')
-			),
-		},
-		categories: {
-			active: !!(Array.isArray(data.categories) && data.categories.length &&
-				(data.categories.length > 1 || data.categories[0] !== 'all')),
-			label: await buildSelectedCategoryLabel(searchData.selectedCids),
-		},
-	};
+	// Build filter chips shown on the page
+	searchData.filters = await buildFilters(data, searchData.selectedCids);
 
 	searchData.userFilterSelected = await getSelectedUsers(data.postedBy);
 	searchData.tagFilterSelected = getSelectedTags(data.hasTags);
@@ -167,6 +135,56 @@ function buildSearchInput(req, page) {
 		itemsPerPage: req.query.itemsPerPage,
 		uid: req.uid,
 		qs: req.query,
+	};
+}
+
+// Compute selected category view state (selectedCids + optional selectedCategory)
+function computeSelectedCategoryState(categoriesArray) {
+	if (!Array.isArray(categoriesArray)) return {};
+	const selectedCids = categoriesArray.map(cid => validator.escape(String(cid)));
+	const hasSpecificSelection = !selectedCids.includes('all') && selectedCids.length;
+	return {
+		selectedCids,
+		...(hasSpecificSelection ? { selectedCategory: { cid: 0 } } : {}),
+	};
+}
+
+// Build the filters section shown on the search page (uses translator + category label)
+async function buildFilters(data, selectedCids) {
+	return {
+		replies: {
+			active: !!data.repliesFilter,
+			label: `[[search:replies-${data.repliesFilter}-count, ${data.replies}]]`,
+		},
+		time: {
+			active: !!(data.timeFilter && data.timeRange),
+			label: `[[search:time-${data.timeFilter}-than-${data.timeRange}]]`,
+		},
+		sort: {
+			active: !!(data.sortBy && data.sortBy !== 'relevance'),
+			label: `[[search:sort-by-${data.sortBy}-${data.sortDirection}]]`,
+		},
+		users: {
+			active: !!(data.postedBy),
+			label: translator.compile(
+				'search:posted-by-usernames',
+				(Array.isArray(data.postedBy) ? data.postedBy : [])
+					.map(u => validator.escape(String(u))).join(', ')
+			),
+		},
+		tags: {
+			active: !!(Array.isArray(data.hasTags) && data.hasTags.length),
+			label: translator.compile(
+				'search:tags-x',
+				(Array.isArray(data.hasTags) ? data.hasTags : [])
+					.map(u => validator.escape(String(u))).join(', ')
+			),
+		},
+		categories: {
+			active: !!(Array.isArray(data.categories) && data.categories.length &&
+				(data.categories.length > 1 || data.categories[0] !== 'all')),
+			label: await buildSelectedCategoryLabel(selectedCids),
+		},
 	};
 }
 
