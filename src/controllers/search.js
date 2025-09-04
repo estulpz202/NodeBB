@@ -51,10 +51,8 @@ searchController.search = async function (req, res, next) {
 		recordSearch(data),
 	]);
 
-	searchData.pagination = pagination.create(page, searchData.pageCount, req.query);
-	searchData.multiplePages = searchData.pageCount > 1;
-	searchData.search_query = validator.escape(String(req.query.term || ''));
-	searchData.term = req.query.term;
+	// Populate core fields used by both JSON and full-page render paths
+	applyBaseSearchData(searchData, page, req);
 
 	if (searchOnly) {
 		return res.json(searchData);
@@ -186,6 +184,14 @@ async function buildFilters(data, selectedCids) {
 			label: await buildSelectedCategoryLabel(selectedCids),
 		},
 	};
+}
+
+// Set pagination + core query fields on the search view model
+function applyBaseSearchData(searchData, page, req) {
+	searchData.pagination = pagination.create(page, searchData.pageCount, req.query);
+	searchData.multiplePages = searchData.pageCount > 1;
+	searchData.search_query = validator.escape(String(req.query.term || ''));
+	searchData.term = req.query.term;
 }
 
 const searches = {};
