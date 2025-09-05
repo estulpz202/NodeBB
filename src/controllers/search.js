@@ -1,9 +1,10 @@
-
 'use strict';
 
+/* Deps */
 const validator = require('validator');
 const _ = require('lodash');
 
+/* NodeBB modules */
 const db = require('../database');
 const meta = require('../meta');
 const plugins = require('../plugins');
@@ -17,61 +18,66 @@ const translator = require('../translator');
 const utils = require('../utils');
 const helpers = require('./helpers');
 
+/* Exports */
 const searchController = module.exports;
 
+/* Controller: "/search" page and JSON mode */
 searchController.search = async function (req, res, next) {
 	console.log('Estu Lpz: searchController.search hit'); // REMOVE before merging
-
 	if (!plugins.hooks.hasListeners('filter:search.query')) {
 		return next();
 	}
-	const page = Math.max(1, parseInt(req.query.page, 10)) || 1;
 
+	const page = Math.max(1, parseInt(req.query.page, 10)) || 1;
 	const searchOnly = parseInt(req.query.searchOnly, 10) === 1;
 
+	// Resolve user search privileges
 	const userPrivileges = await utils.promiseParallel({
 		'search:users': privileges.global.can('search:users', req.uid),
 		'search:content': privileges.global.can('search:content', req.uid),
 		'search:tags': privileges.global.can('search:tags', req.uid),
 	});
+
+	// Default scope
 	req.query.in = req.query.in || meta.config.searchDefaultIn || 'titlesposts';
-	
-	// Validate permissions: block if user is not allowed to search this scope
+
+	// Permission gate
 	const allowed = await validateSearchPermissions(req, userPrivileges);
 	if (!allowed) {
 		return helpers.notAllowed(req, res);
 	}
 
-	// Normalize incoming query params and build input object
+	// Normalize params and build input
 	normalizeSearchQueryParams(req.query);
 	const data = buildSearchInput(req, page);
 
+	// Run search and record in parallel
 	const [searchData] = await Promise.all([
 		search.search(data),
 		recordSearch(data),
 	]);
 
-	// Populate core fields used by both JSON and full-page render paths
+	// Shared fields
 	applyBaseSearchData(searchData, page, req);
 
+	// JSON fast path
 	if (searchOnly) {
 		return res.json(searchData);
 	}
 
+	// Page-only fields
 	await populateSearchViewModel(searchData, req, data, userPrivileges);
 
 	res.render('search', searchData);
 };
 
-// Checks if the current user/request is allowed to perform this search
+/* Permission check */
 async function validateSearchPermissions(req, userPrivileges) {
-	// Default "allowed" check based on privileges
 	let allowed = (req.query.in === 'users' && userPrivileges['search:users']) ||
 		(req.query.in === 'tags' && userPrivileges['search:tags']) ||
 		(req.query.in === 'categories') ||
 		(['titles', 'titlesposts', 'posts', 'bookmarks'].includes(req.query.in) && userPrivileges['search:content']);
 
-	// Allow plugins to modify "allowed"
 	({ allowed } = await plugins.hooks.fire('filter:search.isAllowed', {
 		uid: req.uid,
 		query: req.query,
@@ -81,19 +87,19 @@ async function validateSearchPermissions(req, userPrivileges) {
 	return allowed;
 }
 
-// Normalize query parameters that can be singular or array
+/* Normalize array-like params */
 function normalizeSearchQueryParams(qs) {
 	if (qs.categories) qs.categories = coerceToArray(qs.categories);
 	if (qs.hasTags) qs.hasTags = coerceToArray(qs.hasTags);
 }
 
-// Ensure values are always arrays (used for categories, tags)
+/* Ensure a value is an array */
 function coerceToArray(val) {
 	if (val === undefined || val === null) return val;
 	return Array.isArray(val) ? val : [val];
 }
 
-// Build the structured "data" object passed to search + recordSearch.
+/* Build input for search + recordSearch */
 function buildSearchInput(req, page) {
 	return {
 		query: req.query.term,
@@ -116,8 +122,8 @@ function buildSearchInput(req, page) {
 	};
 }
 
+/* Debounced search logging (unchanged) */
 const searches = {};
-
 async function recordSearch(data) {
 	const { query, searchIn } = data;
 	if (!query || parseInt(data.qs.composer, 10) === 1) {
@@ -148,7 +154,7 @@ async function recordSearch(data) {
 	}
 }
 
-// Set pagination + core query fields on the search view model
+/* Shared view-model fields */
 function applyBaseSearchData(searchData, page, req) {
 	searchData.pagination = pagination.create(page, searchData.pageCount, req.query);
 	searchData.multiplePages = searchData.pageCount > 1;
@@ -156,15 +162,13 @@ function applyBaseSearchData(searchData, page, req) {
 	searchData.term = req.query.term;
 }
 
-// Populate view-only fields: page chrome, category UI state, filters, selections, defaults, privileges
+/* Page-only view-model fields */
 async function populateSearchViewModel(searchData, req, data, userPrivileges) {
-	// Page chrome (breadcrumbs, view toggles, title)
 	searchData.breadcrumbs = helpers.buildBreadcrumbs([{ text: '[[global:search]]' }]);
 	searchData.showAsPosts = !req.query.showAs || req.query.showAs === 'posts';
 	searchData.showAsTopics = req.query.showAs === 'topics';
 	searchData.title = '[[global:header.search]]';
 
-	// Category selection state (selectedCids + optional selectedCategory)
 	if (Array.isArray(data.categories)) {
 		const selectedCids = data.categories.map(cid => validator.escape(String(cid)));
 		searchData.selectedCids = selectedCids;
@@ -173,10 +177,7 @@ async function populateSearchViewModel(searchData, req, data, userPrivileges) {
 		}
 	}
 
-	// Filter chips (labels may require async translator/category lookups)
 	searchData.filters = await buildFilters(data, searchData.selectedCids);
-
-	// Selections + defaults used by the template
 	searchData.userFilterSelected = await getSelectedUsers(data.postedBy);
 	searchData.tagFilterSelected = getSelectedTags(data.hasTags);
 	searchData.searchDefaultSortBy = meta.config.searchDefaultSortBy || '';
@@ -184,7 +185,7 @@ async function populateSearchViewModel(searchData, req, data, userPrivileges) {
 	searchData.privileges = userPrivileges;
 }
 
-// Build the filters section shown on the search page (uses translator + category label)
+/* Build filter block */
 async function buildFilters(data, selectedCids) {
 	return {
 		replies: {
@@ -223,6 +224,7 @@ async function buildFilters(data, selectedCids) {
 	};
 }
 
+/* Selected users for “posted by” chip */
 async function getSelectedUsers(postedBy) {
 	if (!Array.isArray(postedBy) || !postedBy.length) {
 		return [];
@@ -231,6 +233,7 @@ async function getSelectedUsers(postedBy) {
 	return await user.getUsersFields(uids, ['username', 'userslug', 'picture']);
 }
 
+/* Tag objects for selected tags chip */
 function getSelectedTags(hasTags) {
 	if (!Array.isArray(hasTags) || !hasTags.length) {
 		return [];
@@ -239,6 +242,7 @@ function getSelectedTags(hasTags) {
 	return topics.getTagData(tags);
 }
 
+/* Category filter label */
 async function buildSelectedCategoryLabel(selectedCids) {
 	let label = '[[search:categories]]';
 	if (Array.isArray(selectedCids)) {
