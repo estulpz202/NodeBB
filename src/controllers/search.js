@@ -23,7 +23,6 @@ const searchController = module.exports;
 
 /* Controller: "/search" page and JSON mode */
 searchController.search = async function (req, res, next) {
-	console.log('Estu Lpz: searchController.search hit'); // REMOVE before merging
 	if (!plugins.hooks.hasListeners('filter:search.query')) {
 		return next();
 	}
@@ -122,7 +121,7 @@ function buildSearchInput(req, page) {
 	};
 }
 
-/* Debounced search logging (unchanged) */
+/* Debounced search logging */
 const searches = {};
 async function recordSearch(data) {
 	const { query, searchIn } = data;
