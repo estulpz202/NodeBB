@@ -66,7 +66,7 @@ searchController.search = async function (req, res, next) {
 	}
 
 	// Page-only fields
-	await populateSearchViewModel(searchData, req, data, userPrivileges);
+	await populateSearchViewModel({ searchData, req, data, userPrivileges });
 
 	res.render('search', searchData);
 };
@@ -163,7 +163,9 @@ function applyBaseSearchData(searchData, page, req) {
 }
 
 /* Page-only view-model fields */
-async function populateSearchViewModel(searchData, req, data, userPrivileges) {
+async function populateSearchViewModel(ctx) {
+	const { searchData, req, data, userPrivileges } = ctx;
+
 	searchData.breadcrumbs = helpers.buildBreadcrumbs([{ text: '[[global:search]]' }]);
 	searchData.showAsPosts = !req.query.showAs || req.query.showAs === 'posts';
 	searchData.showAsTopics = req.query.showAs === 'topics';
